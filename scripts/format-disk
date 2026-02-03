@@ -1,0 +1,312 @@
+#!/usr/bin/env bash
+#
+# format-disk - Safe declarative disk formatting with disko
+#
+# This script formats a disk using the disko configuration.
+# It includes multiple safety checks to prevent accidental data loss.
+#
+set -euo pipefail
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+BOLD='\033[1m'
+NC='\033[0m' # No Color
+
+# Script directory (for finding flake)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FLAKE_DIR="$(dirname "$SCRIPT_DIR")"
+
+# Functions
+print_header() {
+    echo -e "\n${BLUE}${BOLD}═══════════════════════════════════════════════════════════════${NC}"
+    echo -e "${BLUE}${BOLD}  $1${NC}"
+    echo -e "${BLUE}${BOLD}═══════════════════════════════════════════════════════════════${NC}\n"
+}
+
+print_warning() {
+    echo -e "${YELLOW}⚠️  WARNING: $1${NC}"
+}
+
+print_error() {
+    echo -e "${RED}❌ ERROR: $1${NC}"
+}
+
+print_success() {
+    echo -e "${GREEN}✅ $1${NC}"
+}
+
+print_info() {
+    echo -e "${BLUE}ℹ️  $1${NC}"
+}
+
+# Check if running as root
+check_root() {
+    if [[ $EUID -ne 0 ]]; then
+        print_error "This script must be run as root"
+        echo "  Try: sudo $0 $*"
+        exit 1
+    fi
+}
+
+# Show current disk layout
+show_disk_layout() {
+    local device="$1"
+    
+    print_header "Current Disk Layout"
+    
+    echo -e "${BOLD}Device: $device${NC}\n"
+    
+    # Show disk info
+    if command -v lsblk &>/dev/null; then
+        lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT,LABEL "$device" 2>/dev/null || lsblk "$device"
+    fi
+    
+    echo ""
+    
+    # Show if disk has partitions with data
+    if command -v blkid &>/dev/null; then
+        echo -e "${BOLD}Partition details:${NC}"
+        blkid "${device}"* 2>/dev/null || echo "  No partitions found"
+    fi
+}
+
+# Show what will be created
+show_planned_layout() {
+    local device="$1"
+    local efi_size="${2:-2G}"
+    local swap_size="${3:-32G}"
+    
+    print_header "Planned Disk Layout"
+    
+    echo -e "${BOLD}Target Device: $device${NC}"
+    echo -e "${RED}${BOLD}ALL DATA ON THIS DEVICE WILL BE DESTROYED${NC}\n"
+    
+    echo "The following partitions will be created:"
+    echo ""
+    echo "  ┌─────────────────────────────────────────────────────┐"
+    echo "  │  Partition 1: EFI System Partition                  │"
+    echo "  │    Size: $efi_size                                       │"
+    echo "  │    Format: FAT32                                    │"
+    echo "  │    Mount: /boot                                     │"
+    echo "  ├─────────────────────────────────────────────────────┤"
+    echo "  │  Partition 2: Swap                                  │"
+    echo "  │    Size: $swap_size                                      │"
+    echo "  │    Purpose: Swap + Hibernate resume                 │"
+    echo "  ├─────────────────────────────────────────────────────┤"
+    echo "  │  Partition 3: Root (Btrfs)                          │"
+    echo "  │    Size: Remaining space                            │"
+    echo "  │    Subvolumes:                                      │"
+    echo "  │      @      → /                                     │"
+    echo "  │      @home  → /home                                 │"
+    echo "  │      @nix   → /nix                                  │"
+    echo "  │      @log   → /var/log                              │"
+    echo "  │    Options: compress=zstd, noatime, ssd             │"
+    echo "  └─────────────────────────────────────────────────────┘"
+    echo ""
+}
+
+# Get device from user if not provided
+get_device() {
+    local device="${1:-}"
+    
+    if [[ -z "$device" ]]; then
+        print_header "Available Disks"
+        lsblk -d -o NAME,SIZE,MODEL,TRAN | grep -v "loop"
+        echo ""
+        
+        read -rp "Enter device path (e.g., /dev/nvme0n1 or /dev/sda): " device
+    fi
+    
+    # Validate device exists
+    if [[ ! -b "$device" ]]; then
+        print_error "Device '$device' does not exist or is not a block device"
+        exit 1
+    fi
+    
+    # Warn if it looks like a partition instead of a disk
+    if [[ "$device" =~ [0-9]$ ]] && [[ ! "$device" =~ nvme.*n[0-9]+$ ]]; then
+        print_warning "This looks like a partition, not a whole disk!"
+        read -rp "Are you sure you want to continue? (y/N): " confirm
+        [[ "$confirm" =~ ^[Yy]$ ]] || exit 1
+    fi
+    
+    echo "$device"
+}
+
+# Check for mounted partitions
+check_mounted() {
+    local device="$1"
+    
+    if mount | grep -q "^${device}"; then
+        print_error "Device has mounted partitions!"
+        echo ""
+        mount | grep "^${device}"
+        echo ""
+        print_info "Unmount all partitions before proceeding:"
+        echo "  umount ${device}*"
+        exit 1
+    fi
+}
+
+# Multi-step confirmation
+confirm_destructive() {
+    local device="$1"
+    
+    print_header "⚠️  DANGER ZONE ⚠️"
+    
+    echo -e "${RED}${BOLD}THIS WILL PERMANENTLY DESTROY ALL DATA ON: $device${NC}"
+    echo ""
+    echo "This action is IRREVERSIBLE. Make sure you have:"
+    echo "  • Backed up all important data"
+    echo "  • Selected the correct device"
+    echo "  • Unmounted all partitions on this device"
+    echo ""
+    
+    # First confirmation
+    read -rp "Type the device name to confirm (${device}): " confirm1
+    if [[ "$confirm1" != "$device" ]]; then
+        print_error "Device name doesn't match. Aborting."
+        exit 1
+    fi
+    
+    echo ""
+    
+    # Second confirmation
+    echo -e "${RED}${BOLD}FINAL CONFIRMATION${NC}"
+    echo "Type 'YES' (all caps) to proceed with formatting:"
+    read -rp "> " confirm2
+    if [[ "$confirm2" != "YES" ]]; then
+        print_error "Confirmation failed. Aborting."
+        exit 1
+    fi
+    
+    echo ""
+    print_warning "Starting in 5 seconds... Press Ctrl+C to abort!"
+    for i in 5 4 3 2 1; do
+        echo -ne "\r  $i..."
+        sleep 1
+    done
+    echo -e "\r  GO!  "
+}
+
+# Run disko
+run_disko() {
+    local device="$1"
+    local host="${2:-launchpad}"
+    
+    print_header "Running Disko"
+    
+    print_info "Formatting disk with disko..."
+    echo "  Flake: $FLAKE_DIR"
+    echo "  Host: $host"
+    echo "  Device: $device"
+    echo ""
+    
+    # Run disko in disko mode (format + mount)
+    if ! disko --mode disko --flake "${FLAKE_DIR}#${host}"; then
+        print_error "Disko failed!"
+        exit 1
+    fi
+    
+    print_success "Disko completed successfully!"
+}
+
+# Show mount status
+show_mounts() {
+    print_header "Mount Status"
+    
+    echo "Current mounts under /mnt:"
+    echo ""
+    
+    if mount | grep -q "/mnt"; then
+        mount | grep "/mnt" | column -t
+    else
+        print_warning "Nothing mounted under /mnt"
+    fi
+}
+
+# Show next steps
+show_next_steps() {
+    local host="${1:-launchpad}"
+    
+    print_header "Next Steps"
+    
+    echo "Your disk is formatted and mounted at /mnt. Now:"
+    echo ""
+    echo "  1. Generate hardware configuration:"
+    echo -e "     ${BOLD}nixos-generate-config --root /mnt${NC}"
+    echo ""
+    echo "  2. Copy your flake to the new system:"
+    echo -e "     ${BOLD}cp -r ${FLAKE_DIR} /mnt/etc/nixos${NC}"
+    echo ""
+    echo "  3. Review/edit the configuration:"
+    echo -e "     ${BOLD}vim /mnt/etc/nixos/system-flake/hosts/${host}/default.nix${NC}"
+    echo ""
+    echo "  4. Install NixOS:"
+    echo -e "     ${BOLD}nixos-install --flake /mnt/etc/nixos/system-flake#${host}${NC}"
+    echo ""
+    echo "  5. Set root password when prompted, then reboot:"
+    echo -e "     ${BOLD}reboot${NC}"
+    echo ""
+    print_success "Good luck! 🚀"
+}
+
+# Main
+main() {
+    local device="${1:-}"
+    local host="${2:-launchpad}"
+    
+    print_header "NixOS Disk Formatter (Disko)"
+    
+    # Safety checks
+    check_root "$@"
+    
+    # Get and validate device
+    device=$(get_device "$device")
+    
+    # Show current state
+    show_disk_layout "$device"
+    
+    # Check for mounts
+    check_mounted "$device"
+    
+    # Show plan
+    show_planned_layout "$device"
+    
+    # Get confirmation
+    confirm_destructive "$device"
+    
+    # Do the thing
+    run_disko "$device" "$host"
+    
+    # Show results
+    show_mounts
+    
+    # Show next steps
+    show_next_steps "$host"
+}
+
+# Help
+if [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]]; then
+    echo "Usage: $0 [DEVICE] [HOST]"
+    echo ""
+    echo "Format a disk using disko with the NixOS flake configuration."
+    echo ""
+    echo "Arguments:"
+    echo "  DEVICE    Block device to format (e.g., /dev/nvme0n1)"
+    echo "            If not provided, will prompt interactively"
+    echo "  HOST      Host configuration to use (default: launchpad)"
+    echo ""
+    echo "Examples:"
+    echo "  $0                          # Interactive mode"
+    echo "  $0 /dev/nvme0n1             # Format nvme0n1 with launchpad config"
+    echo "  $0 /dev/sda control-tower   # Format sda with control-tower config"
+    echo ""
+    echo "⚠️  This script DESTROYS ALL DATA on the target device!"
+    exit 0
+fi
+
+main "$@"
