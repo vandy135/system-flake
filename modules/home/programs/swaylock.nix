@@ -77,7 +77,7 @@ in {
         fade-in = 0.2;
         
         # Security
-        ignore-empty-password = true;
+        ignore-empty-password = false;  # Require password entry
         show-failed-attempts = true;
       };
     };

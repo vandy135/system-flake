@@ -1,5 +1,9 @@
 # Claude Code - Anthropic's AI assistant CLI
 # Installed via npm as @anthropic-ai/claude-code
+#
+# SECURITY NOTE: npx auto-install removed due to supply-chain risk.
+# The wrapper now requires claude to be installed globally first.
+# Install manually: npm install -g @anthropic-ai/claude-code
 {
   config,
   lib,
@@ -8,18 +12,27 @@
 }: let
   cfg = config.homeModules.claudeCode;
 
-  # Create a wrapper script that ensures claude-code is available
-  # Uses npx to run the package without global install
+  # Wrapper that uses globally installed claude-code
+  # Does NOT auto-install via npx (supply-chain risk)
   claudeWrapper = pkgs.writeShellScriptBin "claude" ''
     # Ensure Node.js is available
     export PATH="${pkgs.nodejs}/bin:$PATH"
     
-    # Check if installed globally via npm, otherwise use npx
+    # Check common install locations
+    for dir in "$HOME/.npm-global/bin" "$HOME/.local/bin" "/usr/local/bin"; do
+      if [[ -x "$dir/claude" ]]; then
+        exec "$dir/claude" "$@"
+      fi
+    done
+    
+    # Check if in PATH
     if command -v claude &> /dev/null; then
       exec claude "$@"
-    else
-      exec ${pkgs.nodejs}/bin/npx -y @anthropic-ai/claude-code "$@"
     fi
+    
+    echo "Error: claude-code not installed." >&2
+    echo "Install with: npm install -g @anthropic-ai/claude-code" >&2
+    exit 1
   '';
 
   # Alternative: Build as a proper Node.js package
@@ -57,12 +70,12 @@ in {
     };
 
     installMethod = lib.mkOption {
-      type = lib.types.enum ["npx" "global"];
-      default = "npx";
+      type = lib.types.enum ["wrapper" "global"];
+      default = "wrapper";
       description = ''
         Installation method:
-        - npx: Uses npx wrapper (recommended, always latest)
-        - global: Installs globally via npm (requires manual updates)
+        - wrapper: Wrapper script that finds globally installed claude (default)
+        - global: Also triggers npm global install via home.activation
       '';
     };
   };
