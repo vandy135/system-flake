@@ -2,6 +2,5 @@
 { ... }: {
   imports = [
     ./graphics.nix
-    ./disko.nix
   ];
 }

@@ -8,16 +8,10 @@
   imports = [
     ../../modules/nixos/desktop
     ../../modules/nixos/system     # System essentials (audio, bluetooth, utils)
-    ../../modules/nixos/hardware   # Hardware (graphics, disko)
+    ../../modules/nixos/hardware   # Hardware (graphics)
   ];
 
-  # Disk partitioning (disko)
-  # ⚠️  CHANGE THIS to your actual disk device before installation!
-  hardwareModules.disko = {
-    enable = true;
-    device = "/dev/sda";  # ← Change this to your disk!
-    swapSize = "16G";     # Adjust for your RAM
-  };
+  # Disk partitioning: disko removed. Define fileSystems/swapDevices manually in hardware-configuration.nix.
 
   # Hardware platform (adjust for your CPU)
   nixpkgs.hostPlatform = "x86_64-linux";
