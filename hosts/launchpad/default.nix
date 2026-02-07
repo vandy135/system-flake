@@ -9,20 +9,10 @@
     ./hardware-configuration.nix  # Generate with nixos-generate-config
     ../../modules/nixos/desktop
     ../../modules/nixos/system     # System essentials (audio, bluetooth, utils)
-    ../../modules/nixos/hardware   # Hardware (graphics, NVIDIA, disko)
+    ../../modules/nixos/hardware   # Hardware (graphics, NVIDIA)
   ];
 
-  # Disk partitioning (disko)
-  # ⚠️  CHANGE THIS to your actual disk device before installation!
-  # Run `lsblk` to find your target disk (e.g., /dev/nvme0n1, /dev/sda)
-  hardwareModules.disko = {
-    enable = true;
-    device = "/dev/nvme0n1";  # ← Change this to your disk!
-    efiSize = "2G";
-    swapSize = "32G";
-    enableHibernate = true;
-    enableSsd = true;  # Set to false for HDDs
-  };
+  # Disk partitioning: disko removed. Define fileSystems/swapDevices manually in hardware-configuration.nix.
 
   # Desktop
   desktop.niri.enable = true;

@@ -10,7 +10,6 @@
         };
       };
       modules = [
-        inputs.disko.nixosModules.disko
         inputs.sops-nix.nixosModules.sops
         inputs.home-manager.nixosModules.home-manager
         inputs.niri.nixosModules.niri  # Niri NixOS module (system-level)
