@@ -37,7 +37,8 @@
   homeModules.shell.enable = true;      # Zsh + aliases + env vars
   homeModules.starship.enable = true;   # Prompt
   homeModules.zellij.enable = true;     # Terminal multiplexer
-  homeModules.cliTools.enable = true;   # eza, bat, fzf, ripgrep, fd, etc.
+  # Disabled by default while theming is off (cli-tools module currently assumes theme.colors).
+  homeModules.cliTools.enable = false;
 
   # ==========================================================================
   # DEVELOPMENT TOOLS
