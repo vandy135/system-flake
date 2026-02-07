@@ -2,6 +2,9 @@
 # Imports all user-level program configurations
 {...}: {
   imports = [
+    # XDG base dirs + user dirs
+    ./xdg.nix
+
     # Theme system (must be first - other modules depend on it)
     ./theme
 
