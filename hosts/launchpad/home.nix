@@ -17,7 +17,8 @@
   # Options: "catppuccin-mocha" | "tokyo-night" | "everforest"
   # ==========================================================================
   homeModules.theme = {
-    enable = true;
+    # Disabled by default (catppuccin currently breaking builds). Enable when fixed.
+    enable = false;
     name = "catppuccin-mocha";
   };
 
