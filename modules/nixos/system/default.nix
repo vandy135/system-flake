@@ -3,5 +3,6 @@
   imports = [
     ./essentials.nix
     ./enhancements.nix
+    ./nix-caches.nix
   ];
 }
